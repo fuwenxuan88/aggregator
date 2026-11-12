@@ -1,34 +1,37 @@
-name: Collect
+name: Aggregator Collect (6h)
+
+# Prepared for Fu: run every 6 hours, plus manual trigger.
+# Failure-retention: subscribe/collect.py only pushes to Gist AFTER it has
+# fetched nodes, passed the alive check, and converted all formats
+# successfully. If any step yields zero usable nodes it exits BEFORE the
+# Gist push, so the previous Gist content (last good subscriptions) stays
+# untouched.
 on:
-  # executed once a week on Sundays at 00:00
   schedule:
-    - cron: "0 0 * * 1"
+    # Every 6 hours (UTC). Beijing time: 02:00 / 08:00 / 14:00 / 20:00
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.repository }}
-  cancel-in-progress: true
+  group: ${{ github.repository }}-aggregator
+  cancel-in-progress: false
 
 env:
-  # time zone
   TZ: Asia/Shanghai
-
-  # github access token
+  # GitHub token with `gist` scope only (classic PAT), stored as a Secret
   GIST_PAT: ${{ secrets.GIST_PAT }}
-
-  # github username and gist id, separated by '/'
+  # Format: your-github-username/your-gist-id, stored as a Secret
   GIST_LINK: ${{ secrets.GIST_LINK }}
-
-  # the url to the list of airports that you maintain yourself
-  # each line include domain, coupon and invitation code, the domain must be included, and the latter two items are optional
+  # Optional: URL of your own airport/domain list. Leave unset to use the
+  # project's built-in public free sources only.
   CUSTOMIZE_LINK: ${{ secrets.CUSTOMIZE_LINK }}
-
-  # include special protocols, such as vless hysteria2 and hysteria
+  # Include VLESS / Hysteria2 / Hysteria etc. Empty = enabled upstream.
   ENABLE_SPECIAL_PROTOCOLS: ${{ vars.ENABLE_SPECIAL_PROTOCOLS }}
 
 jobs:
   process:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -46,26 +49,29 @@ jobs:
       - name: Install
         run: pip3 install -r requirements.txt
 
-      - name: Check
+      - name: Check secrets
         run: |
           if [ -z "$GIST_PAT" ]; then
-              echo "Error: environment 'GIST_PAT' cannot be empty"
+              echo "Error: secret 'GIST_PAT' cannot be empty"
               exit 1
           fi
-
           if [ -z "$GIST_LINK" ]; then
-              echo "Error: environment 'GIST_LINK' cannot be empty"
+              echo "Error: secret 'GIST_LINK' cannot be empty"
               exit 1
           fi
-
           LINK_PARTS=$(echo "$GIST_LINK" | awk -F'/' 'NF==2 && $1!="" && $2!=""')
           if [ -z "$LINK_PARTS" ]; then
-              echo "Error: environment 'GIST_LINK' is not valid, should be 'username/gist_id' format"
+              echo "Error: secret 'GIST_LINK' is not valid, should be 'username/gist_id' format"
               exit 1
           fi
 
-      - name: Collect
-        run: python -u subscribe/collect.py --all --overwrite --skip
+      - name: Collect (fetch, dedupe, alive-check, convert, push to Gist)
+        # NOTE: upstream passes --skip (which SKIPS the alive check).
+        # Intentionally removed here so nodes are actually checked for
+        # availability. Targets default in code and are pinned explicitly:
+        # clash -> clash.yaml, v2ray -> v2ray.txt, singbox -> singbox.json
+        run: python -u subscribe/collect.py --all --overwrite -t clash v2ray singbox
 
       - name: Timestamp
+        if: always()
         run: date
