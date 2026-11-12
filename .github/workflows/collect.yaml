@@ -72,6 +72,15 @@ jobs:
         # clash -> clash.yaml, v2ray -> v2ray.txt, singbox -> singbox.json
         run: python -u subscribe/collect.py --all --overwrite -t clash v2ray singbox
 
+      - name: Build V2Ray subscription (fallback)
+        # subconverter cannot export some protocols (e.g. hysteria2) to
+        # the v2ray target; when the whole alive pool is such a protocol
+        # v2ray.txt comes out empty and is skipped. This rebuilds it from
+        # the clash.yaml just pushed to the Gist. If nothing is mappable
+        # it leaves the previous v2ray.txt untouched.
+        if: success()
+        run: python -u .github/scripts/build_v2ray.py
+
       - name: Timestamp
         if: always()
         run: date
